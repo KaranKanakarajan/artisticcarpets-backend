@@ -24,6 +24,7 @@ import {
   restoreProduct,
   bulkUpdateProducts,
   deleteProductImage,
+  getAdminProducts,
 } from "../controllers/product.controller.js";
 
 const router = Router();
@@ -88,6 +89,12 @@ const mongoIdParam = (paramName) =>
  * Get overall product statistics (Admin only)
  */
 router.get("/products/stats", protect, isAdmin, getProductStats);
+
+/**
+ * GET /api/products/admin-list
+ * Get all products including drafts and archived (Admin only)
+ */
+router.get("/products/admin-list", protect, isAdmin, getAdminProducts);
 
 /**
  * POST /api/admin/products

@@ -218,6 +218,7 @@ orderSchema.pre("save", async function (next) {
 
 // Virtual: total items
 orderSchema.virtual("itemCount").get(function () {
+  if (!this.items) return 0;
   return this.items.reduce((sum, item) => sum + item.quantity, 0);
 });
 

@@ -92,8 +92,8 @@ export const createProduct = async (req, res) => {
       typeof metaKeywords === "string"
         ? metaKeywords.split(",").map((k) => k.trim()).filter(Boolean)
         : Array.isArray(metaKeywords)
-        ? metaKeywords
-        : [];
+          ? metaKeywords
+          : [];
 
     // ── 9. Create product ──────────────────────
     const product = await Product.create({
@@ -151,6 +151,40 @@ export const createProduct = async (req, res) => {
     }
 
     return sendError(res, 500, "Internal server error while creating product.");
+  }
+};
+
+// ════════════════════════════════════════════════════════════════
+//  ADMIN: Get All Products (Includes draft, archived, etc.)
+//  GET /api/admin/products
+// ════════════════════════════════════════════════════════════════
+export const getAdminProducts = async (req, res) => {
+  try {
+    const { status, keyword, limit = 100 } = req.query;
+    const filter = {};
+
+    if (status && status !== "all") {
+      filter.status = status;
+    }
+
+    if (keyword) {
+      filter.$or = [
+        { title: { $regex: new RegExp(keyword, "i") } },
+        { sku: { $regex: new RegExp(keyword, "i") } }
+      ];
+    }
+
+    const products = await Product.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit, 10));
+
+    return sendSuccess(res, 200, "Admin products retrieved successfully.", {
+      products,
+      count: products.length
+    });
+  } catch (error) {
+    console.error("getAdminProducts error:", error);
+    return sendError(res, 500, "Internal server error while fetching admin products.");
   }
 };
 
@@ -253,8 +287,8 @@ export const updateProduct = async (req, res) => {
         ? typeof metaKeywords === "string"
           ? metaKeywords.split(",").map((k) => k.trim()).filter(Boolean)
           : Array.isArray(metaKeywords)
-          ? metaKeywords
-          : product.metaKeywords
+            ? metaKeywords
+            : product.metaKeywords
         : product.metaKeywords;
 
     // ── Apply all updates ──────────────────────
@@ -384,7 +418,7 @@ export const bulkUpdateProducts = async (req, res) => {
       // If product lacks a title or price but is being created, it will fail schema validation later,
       // but for bulkWrite upsert based on SKU, we do our best.
       const sku = prod.sku || generateSKU();
-      
+
       // Auto-generate slug if not present but title is
       if (!prod.slug && prod.title) {
         prod.slug = slugify(prod.title, { lower: true, strict: true }) + '-' + Date.now().toString().slice(-4);
@@ -757,5 +791,3 @@ export const getProductStats = async (req, res) => {
     return sendError(res, 500, "Internal server error fetching product stats.");
   }
 };
-
-
