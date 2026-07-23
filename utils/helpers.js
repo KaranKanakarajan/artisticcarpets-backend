@@ -68,7 +68,14 @@ export const deleteFiles = async (filePaths = []) => {
 // Stores the path relative to the project root so
 // it works regardless of deployment CWD.
 // ─────────────────────────────────────────────
-export const buildImageObject = (file) => ({
-  filename: file.filename,
-  path: file.path.replace(/\\/g, "/"), // normalise Windows backslashes
-});
+export const buildImageObject = (file) => {
+  // extract the path relative to the "uploads" folder, so we get "/uploads/products/filename.jpg"
+  const normalizedPath = file.path.replace(/\\/g, "/");
+  const uploadsIndex = normalizedPath.indexOf("/uploads/");
+  const relativePath = uploadsIndex !== -1 ? normalizedPath.substring(uploadsIndex) : `/${file.path.replace(/\\/g, "/")}`;
+
+  return {
+    filename: file.filename,
+    path: relativePath,
+  };
+};
