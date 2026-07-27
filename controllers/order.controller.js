@@ -20,6 +20,7 @@ export const createOrder = asyncHandler(async (req, res) => {
   const {
     items, shippingAddress, billingAddress,
     couponCode, paymentMethod = "cod",
+    paymentStatus = "pending", transactionId,
     isGift = false, giftMessage,
   } = req.body;
 
@@ -91,17 +92,17 @@ export const createOrder = asyncHandler(async (req, res) => {
     }
   }
 
-  const shippingCost = subtotal - couponDiscount > 5000 ? 0 : 199; // Free shipping above ₹5000
-  const taxRate = 0.18; // 18% GST
+  const shippingCost = 0; // Simplified for prototype: subtotal - couponDiscount > 5000 ? 0 : 199; 
+  const taxRate = 0; // Simplified for prototype: 18% GST
   const taxableAmount = subtotal - couponDiscount;
   const taxAmount = Math.round(taxableAmount * taxRate);
   const total = taxableAmount + shippingCost + taxAmount;
 
-  // Get user details (fallback to guest if not authenticated)
+  // Get user details (fallback to request body then guest if not authenticated)
   const customerId = req.user?._id || "000000000000000000000000"; // Dummy ID for guest
-  const customerName = req.user?.fullName || "Guest User";
-  const customerEmail = req.user?.email || "guest@example.com";
-  const customerPhone = req.user?.phone || "0000000000";
+  const customerName = req.user?.fullName || req.body.customerName || "Guest User";
+  const customerEmail = req.user?.email || req.body.customerEmail || "guest@example.com";
+  const customerPhone = req.user?.phone || req.body.customerPhone || "0000000000";
 
   // Extract refund policy from the first product in the cart
   let orderRefund = { status: "None" };
@@ -135,7 +136,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     taxAmount,
     taxRate,
     total,
-    payment: { method: paymentMethod, status: "pending" },
+    payment: { method: paymentMethod, status: paymentStatus, transactionId },
     isGift,
     giftMessage,
     refund: orderRefund,
