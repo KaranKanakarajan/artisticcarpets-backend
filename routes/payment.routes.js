@@ -4,7 +4,7 @@ import { protect } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-router.post("/razorpay/order", protect, createRazorpayOrder);
-router.post("/razorpay/verify", protect, verifyRazorpayPayment);
+router.post("/razorpay/order", createRazorpayOrder);
+router.post("/razorpay/verify", verifyRazorpayPayment);
 
 export default router;

@@ -107,6 +107,24 @@ const productSchema = new mongoose.Schema(
       min: [0, "Stock cannot be negative."],
     },
 
+    reservedStock: {
+      type: Number,
+      default: 0,
+      min: [0, "Reserved stock cannot be negative."],
+    },
+
+    minStockLevel: {
+      type: Number,
+      default: 5,
+      min: [0, "Min stock level cannot be negative."],
+    },
+
+    costPrice: {
+      type: Number,
+      default: 0,
+      min: [0, "Cost price cannot be negative."],
+    },
+
     // ── Product Attributes ─────────────────────
     material: {
       type: String,
@@ -216,6 +234,16 @@ const productSchema = new mongoose.Schema(
       min: 0,
     },
 
+    // ── Refund Policy ──────────────────────────
+    refundPolicy: {
+      enabled: { type: Boolean, default: false },
+      refundWindow: { type: Number, default: 0 }, // In days
+      description: { type: String, default: "" },
+      reasonRequired: { type: Boolean, default: true },
+      shippingResponsibility: { type: String, enum: ["Customer", "Seller"], default: "Customer" },
+      requiredCondition: { type: String, enum: ["Unused", "Original Packaging", "Damaged Accepted"], default: "Unused" }
+    },
+
     // ── SEO ────────────────────────────────────
     metaTitle: {
       type: String,
@@ -249,10 +277,14 @@ const productSchema = new mongoose.Schema(
 );
 
 // ─────────────────────────────────────────────
-// Virtual: isInStock
+// Virtuals for Stock
 // ─────────────────────────────────────────────
+productSchema.virtual("availableStock").get(function () {
+  return Math.max(0, this.stock - this.reservedStock);
+});
+
 productSchema.virtual("isInStock").get(function () {
-  return this.stock > 0;
+  return this.stock - this.reservedStock > 0;
 });
 
 // ─────────────────────────────────────────────

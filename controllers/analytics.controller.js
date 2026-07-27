@@ -2,6 +2,7 @@ import Order from "../models/order.model.js";
 import Product from "../models/product.model.js";
 import User from "../models/user.model.js";
 import Review from "../models/review.model.js";
+import Complaint from "../models/complaint.model.js";
 import asyncHandler from "../utils/asyncHandler.js";
 import { successResponse } from "../utils/apiResponse.js";
 
@@ -52,7 +53,7 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
     User.countDocuments({ role: "customer", createdAt: { $gte: monthStart } }),
     // Inventory
     Product.aggregate([
-      { $match: { isArchived: false } },
+      { $match: { status: { $ne: "archived" } } },
       { $group: { _id: null, value: { $sum: { $multiply: ["$price", "$stock"] } } } },
     ]),
     // AOV
@@ -147,7 +148,7 @@ export const getRevenueChart = asyncHandler(async (req, res) => {
 export const getTopProducts = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
 
-  const topBySales = await Product.find({ isArchived: false })
+  const topBySales = await Product.find({ status: { $ne: "archived" } })
     .select("name slug mainImage soldCount price rating reviewCount category")
     .populate("category", "name")
     .sort("-soldCount")
@@ -326,6 +327,7 @@ export const getComprehensiveDashboard = asyncHandler(async (req, res) => {
     pendingOrders,
     totalProducts,
     returns,
+    pendingRefunds,
     complaints, // 1-2 star reviews
     
     // 2. Sales Chart (Monthly for current year)
@@ -358,10 +360,11 @@ export const getComprehensiveDashboard = asyncHandler(async (req, res) => {
     Order.countDocuments({ createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd } }),
     Order.countDocuments({ status: "pending" }),
     
-    // Products & Returns & Complaints
-    Product.countDocuments({ isArchived: false }),
+    // Products & Returns & Complaints & Refunds
+    Product.countDocuments({ status: { $ne: "archived" } }),
     Order.countDocuments({ status: { $in: ["returned", "refunded"] } }),
-    Review.countDocuments({ rating: { $lte: 2 } }),
+    Order.countDocuments({ "refund.status": "Pending" }),
+    Complaint.countDocuments({ status: "Open" }),
 
     // Sales Chart
     Order.aggregate([
@@ -379,7 +382,7 @@ export const getComprehensiveDashboard = asyncHandler(async (req, res) => {
     Order.find().sort({ createdAt: -1 }).limit(5).select("orderNumber status total createdAt customerSnapshot payment"),
 
     // Low Stock Alert
-    Product.find({ stock: { $lte: 5 }, isArchived: false }).select("name sku stock mainImage").limit(10),
+    Product.find({ stock: { $lte: 5 }, status: { $ne: "archived" } }).select("name sku stock mainImage").limit(10),
 
     // Best Selling Products
     Order.aggregate([
@@ -392,7 +395,7 @@ export const getComprehensiveDashboard = asyncHandler(async (req, res) => {
 
     // Inventory Overview
     Product.aggregate([
-      { $match: { isArchived: false } },
+      { $match: { status: { $ne: "archived" } } },
       { $group: {
           _id: null,
           total: { $sum: 1 },
@@ -475,6 +478,7 @@ export const getComprehensiveDashboard = asyncHandler(async (req, res) => {
       totalProducts,
       lowStockCount: invStats.lowStock,
       returns,
+      pendingRefunds,
       complaints
     },
     salesChart: fullSalesChart,

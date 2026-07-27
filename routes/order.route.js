@@ -6,17 +6,16 @@ import {
   getOrders,
   updateOrderStatus,
   addInternalNote,
-  requestRefund,
-  processRefund,
   getOrderStats,
   getRevenueChart,
 } from "../controllers/order.controller.js";
-import { protect, adminOnly } from "../middleware/auth.middleware.js";
+import { requestRefund, updateRefundStatus as processRefund } from "../controllers/refund.controller.js";
+import { protect, optionalAuth, adminOnly } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
 // Customer
-router.post ("/"           , protect, createOrder);
+router.post ("/"           , optionalAuth, createOrder);
 router.get  ("/my"         , protect, getMyOrders);
 router.get  ("/:id"        , protect, getOrderById);
 router.post ("/:id/refund" , protect, requestRefund);

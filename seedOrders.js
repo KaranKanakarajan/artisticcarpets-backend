@@ -101,7 +101,12 @@ const seedOrders = async () => {
             message: "Order placed successfully",
             timestamp: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000)
           }
-        ]
+        ],
+        refund: i === 0 
+          ? { status: "Pending", requestedAt: new Date(), reason: "Defective", comment: "Item was torn." }
+          : (i === 1 
+              ? { status: "Refunded", requestedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), completedAt: new Date(), reason: "Not as described", comment: "Color looks different." } 
+              : { status: "None" })
       };
       
       if (status !== "pending") {

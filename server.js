@@ -27,6 +27,7 @@ import cmsRouter from "./routes/cms.route.js";
 import auditLogRouter from "./routes/auditLog.route.js";
 import paymentRouter from "./routes/payment.routes.js";
 import complaintRouter from "./routes/complaint.route.js";
+import refundRouter from "./routes/refund.route.js";
 import { sendError } from "./utils/helpers.js";
 
 const PORT = process.env.PORT || 5000;
@@ -91,6 +92,7 @@ app.get("/health", (_req, res) => {
   res.json({ success: true, status: "OK", uptime: process.uptime() });
 });
 
+import damageRouter from "./routes/damage.route.js";
 // ─────────────────────────────────────────────
 // API Routes
 // ─────────────────────────────────────────────
@@ -112,7 +114,8 @@ app.use("/api/notifications", notificationRouter);
 app.use("/api/cms", cmsRouter);
 app.use("/api/audit-logs", auditLogRouter);
 app.use("/api/complaints", complaintRouter);
-
+app.use("/api/refunds", refundRouter);
+app.use("/api/damaged-inventory", damageRouter);
 // ─────────────────────────────────────────────
 // 404 handler — catches unmatched routes
 // ─────────────────────────────────────────────
@@ -172,4 +175,4 @@ const startServer = async () => {
   }
 };
 
-startServer();
+startServer();// Trigger restart

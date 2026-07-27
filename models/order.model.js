@@ -91,21 +91,23 @@ const shippingSchema = new mongoose.Schema(
 
 const refundSchema = new mongoose.Schema(
   {
-    amount: { type: Number },
-    reason: { type: String },
+    enabled: { type: Boolean, default: false },
+    refundWindow: { type: Number, default: 0 },
+    refundEligibleUntil: { type: Date },
     status: {
       type: String,
-      enum: ["requested", "approved", "rejected", "processed"],
-      default: "requested",
+      enum: ["None", "Pending", "Approved", "Rejected", "Refunded"],
+      default: "None",
     },
-    processedAt: { type: Date },
-    transactionId: { type: String },
-    requestedAt: { type: Date, default: Date.now },
-    requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    processedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    notes: { type: String },
+    requestedAt: { type: Date },
+    approvedAt: { type: Date },
+    rejectedAt: { type: Date },
+    completedAt: { type: Date },
+    reason: { type: String },
+    comment: { type: String },
+    images: [{ type: String }],
   },
-  { _id: true }
+  { _id: false }
 );
 
 const orderSchema = new mongoose.Schema(
@@ -146,6 +148,7 @@ const orderSchema = new mongoose.Schema(
     currency: { type: String, default: "INR" },
 
     // Status
+    inventoryDeducted: { type: Boolean, default: false },
     status: {
       type: String,
       enum: [
@@ -167,7 +170,10 @@ const orderSchema = new mongoose.Schema(
     shipping: shippingSchema,
 
     // Refunds
-    refunds: [refundSchema],
+    refund: {
+      type: refundSchema,
+      default: () => ({ status: "None" }),
+    },
 
     // Timeline / history
     timeline: [timelineEventSchema],

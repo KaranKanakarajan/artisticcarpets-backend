@@ -59,6 +59,12 @@ export const createProduct = async (req, res) => {
       metaTitle,
       metaDescription,
       metaKeywords,
+      refundPolicyEnabled,
+      refundPolicyRefundWindow,
+      refundPolicyDescription,
+      refundPolicyReasonRequired,
+      refundPolicyShippingResponsibility,
+      refundPolicyRequiredCondition,
     } = req.body;
 
     const parsedPrice = parseFloat(price);
@@ -129,6 +135,14 @@ export const createProduct = async (req, res) => {
       metaTitle,
       metaDescription,
       metaKeywords: parsedKeywords,
+      refundPolicy: {
+        enabled: refundPolicyEnabled === "true" || refundPolicyEnabled === true,
+        refundWindow: refundPolicyRefundWindow ? parseInt(refundPolicyRefundWindow, 10) : 0,
+        description: refundPolicyDescription || "",
+        reasonRequired: refundPolicyReasonRequired === "true" || refundPolicyReasonRequired === true,
+        shippingResponsibility: refundPolicyShippingResponsibility || "Customer",
+        requiredCondition: refundPolicyRequiredCondition || "Unused"
+      },
       createdBy: req.user?.id || null,
     });
 
@@ -239,6 +253,12 @@ export const updateProduct = async (req, res) => {
       metaTitle,
       metaDescription,
       metaKeywords,
+      refundPolicyEnabled,
+      refundPolicyRefundWindow,
+      refundPolicyDescription,
+      refundPolicyReasonRequired,
+      refundPolicyShippingResponsibility,
+      refundPolicyRequiredCondition,
     } = req.body;
 
     // ── Price & discount ───────────────────────
@@ -334,9 +354,23 @@ export const updateProduct = async (req, res) => {
           ? isNewArrival === "true" || isNewArrival === true
           : product.isNewArrival,
       status: status || product.status,
-      metaTitle: metaTitle ?? product.metaTitle,
-      metaDescription: metaDescription ?? product.metaDescription,
+      metaTitle: metaTitle ?? (product.metaTitle),
+      metaDescription: metaDescription ?? (product.metaDescription),
       metaKeywords: parsedKeywords,
+      refundPolicy: {
+        enabled: refundPolicyEnabled !== undefined 
+          ? (refundPolicyEnabled === "true" || refundPolicyEnabled === true) 
+          : product.refundPolicy?.enabled || false,
+        refundWindow: refundPolicyRefundWindow !== undefined 
+          ? parseInt(refundPolicyRefundWindow, 10) 
+          : product.refundPolicy?.refundWindow || 0,
+        description: refundPolicyDescription ?? (product.refundPolicy?.description || ""),
+        reasonRequired: refundPolicyReasonRequired !== undefined 
+          ? (refundPolicyReasonRequired === "true" || refundPolicyReasonRequired === true) 
+          : product.refundPolicy?.reasonRequired || false,
+        shippingResponsibility: refundPolicyShippingResponsibility ?? (product.refundPolicy?.shippingResponsibility || "Customer"),
+        requiredCondition: refundPolicyRequiredCondition ?? (product.refundPolicy?.requiredCondition || "Unused"),
+      }
     });
 
     await product.save();
@@ -536,6 +570,7 @@ export const getAllProducts = async (req, res) => {
       page = 1,
       limit = 12,
       search,
+      ids,
       category,
       subCategory,
       collection,
@@ -551,6 +586,13 @@ export const getAllProducts = async (req, res) => {
     } = req.query;
 
     const filter = { status: "active" };
+
+    if (ids) {
+      const idArray = ids.split(",").filter(id => mongoose.Types.ObjectId.isValid(id.trim()));
+      if (idArray.length > 0) {
+        filter._id = { $in: idArray };
+      }
+    }
 
     // ── Full-text search ───────────────────────
     if (search) {

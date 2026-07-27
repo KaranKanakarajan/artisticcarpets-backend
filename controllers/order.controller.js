@@ -97,13 +97,32 @@ export const createOrder = asyncHandler(async (req, res) => {
   const taxAmount = Math.round(taxableAmount * taxRate);
   const total = taxableAmount + shippingCost + taxAmount;
 
+  // Get user details (fallback to guest if not authenticated)
+  const customerId = req.user?._id || "000000000000000000000000"; // Dummy ID for guest
+  const customerName = req.user?.fullName || "Guest User";
+  const customerEmail = req.user?.email || "guest@example.com";
+  const customerPhone = req.user?.phone || "0000000000";
+
+  // Extract refund policy from the first product in the cart
+  let orderRefund = { status: "None" };
+  if (items.length > 0) {
+    const firstProduct = await Product.findById(items[0].productId);
+    if (firstProduct && firstProduct.refundPolicy) {
+      orderRefund = {
+        enabled: firstProduct.refundPolicy.enabled || false,
+        refundWindow: firstProduct.refundPolicy.refundWindow || 0,
+        status: "None"
+      };
+    }
+  }
+
   // Create order
   const order = await Order.create({
-    customer: req.user._id,
+    customer: customerId,
     customerSnapshot: {
-      name: req.user.fullName,
-      email: req.user.email,
-      phone: req.user.phone,
+      name: customerName,
+      email: customerEmail,
+      phone: customerPhone,
     },
     items: orderItems,
     shippingAddress,
@@ -119,6 +138,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     payment: { method: paymentMethod, status: "pending" },
     isGift,
     giftMessage,
+    refund: orderRefund,
     timeline: [{ status: "pending", message: "Order placed successfully." }],
   });
 
@@ -137,7 +157,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       newStock: prev.stock - item.quantity,
       reference: order.orderNumber,
       referenceId: order._id,
-      performedBy: req.user._id,
+      performedBy: req.user ? req.user._id : customerId,
     });
   }
 
@@ -149,19 +169,25 @@ export const createOrder = asyncHandler(async (req, res) => {
     });
   }
 
-  // Update customer stats
-  await User.findByIdAndUpdate(req.user._id, {
-    $inc: { totalOrders: 1, totalSpent: total },
-    lastOrderAt: new Date(),
-  });
+  // Update customer stats (only if authenticated)
+  if (req.user) {
+    await User.findByIdAndUpdate(req.user._id, {
+      $inc: { totalOrders: 1, totalSpent: total },
+      lastOrderAt: new Date(),
+    });
+  }
 
   // Send confirmation email
-  sendOrderConfirmationEmail(req.user, order).catch(console.error);
+  if (req.user) {
+    sendOrderConfirmationEmail(req.user, order).catch(console.error);
+  }
 
-  await createAuditLog({
-    user: req.user, action: "CREATE_ORDER", module: "Order",
-    targetId: order._id, targetName: order.orderNumber, req,
-  });
+  if (req.user) {
+    await createAuditLog({
+      user: req.user, action: "CREATE_ORDER", module: "Order",
+      targetId: order._id, description: `Placed new order ${order.orderNumber}`
+    });
+  }
 
   return successResponse(res, { order }, "Order placed successfully.", 201);
 });
@@ -285,6 +311,13 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
   if (status === "delivered") {
     order.shipping = { ...(order.shipping?.toObject?.() || {}), deliveredAt: new Date() };
     order.payment = { ...(order.payment?.toObject?.() || {}), status: "paid", paidAt: new Date() };
+
+    // Calculate refund eligibility date
+    if (order.refund && order.refund.enabled && order.refund.refundWindow > 0) {
+      const eligibleUntil = new Date();
+      eligibleUntil.setDate(eligibleUntil.getDate() + order.refund.refundWindow);
+      order.refund.refundEligibleUntil = eligibleUntil;
+    }
   }
 
   order.timeline.push({
@@ -292,6 +325,60 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
     message: note || `Order ${status.replace(/_/g, " ")}.`,
     updatedBy: req.user._id,
   });
+
+  // Inventory deduction logic
+  if ((status === "processing" || order.payment?.status === "paid") && !order.inventoryDeducted) {
+    for (const item of order.items) {
+      if (item.product) {
+        const prod = await Product.findById(item.product);
+        if (prod) {
+          const prevStock = prod.stock;
+          prod.stock = Math.max(0, prod.stock - item.quantity);
+          await prod.save();
+          await InventoryMovement.create({
+            product: prod._id,
+            sku: prod.sku,
+            type: "sale",
+            quantity: -item.quantity,
+            previousStock: prevStock,
+            newStock: prod.stock,
+            reference: order.orderNumber,
+            referenceId: order._id,
+            notes: `Deducted for Order ${order.orderNumber}`,
+            performedBy: req.user._id,
+          });
+        }
+      }
+    }
+    order.inventoryDeducted = true;
+  }
+
+  // Inventory restoration on cancellation
+  if (status === "cancelled" && order.inventoryDeducted) {
+    for (const item of order.items) {
+      if (item.product) {
+        const prod = await Product.findById(item.product);
+        if (prod) {
+          const prevStock = prod.stock;
+          prod.stock += item.quantity;
+          await prod.save();
+          await InventoryMovement.create({
+            product: prod._id,
+            sku: prod.sku,
+            type: "return",
+            quantity: item.quantity,
+            previousStock: prevStock,
+            newStock: prod.stock,
+            reference: order.orderNumber,
+            referenceId: order._id,
+            notes: `Restored from Cancelled Order ${order.orderNumber}`,
+            performedBy: req.user._id,
+          });
+        }
+      }
+    }
+    order.inventoryDeducted = false;
+  }
 
   await order.save();
 
@@ -321,61 +408,6 @@ export const addInternalNote = asyncHandler(async (req, res) => {
   return successResponse(res, { internalNotes: order.internalNotes }, "Note added.");
 });
 
-// ─── Request / Process Refund ─────────────────────────────────────────────────
-
-export const requestRefund = asyncHandler(async (req, res) => {
-  const { reason, amount } = req.body;
-  const order = await Order.findOne({ _id: req.params.id, customer: req.user._id });
-  if (!order) return errorResponse(res, "Order not found.", 404);
-
-  if (!["delivered", "returned"].includes(order.status)) {
-    return errorResponse(res, "Refund can only be requested for delivered or returned orders.", 400);
-  }
-
-  order.refunds.push({
-    amount: amount || order.total,
-    reason,
-    status: "requested",
-    requestedBy: req.user._id,
-  });
-
-  await order.save();
-  return successResponse(res, { refunds: order.refunds }, "Refund requested.");
-});
-
-export const processRefund = asyncHandler(async (req, res) => {
-  const { refundId, action, notes, transactionId } = req.body;
-  const order = await Order.findById(req.params.id);
-  if (!order) return errorResponse(res, "Order not found.", 404);
-
-  const refund = order.refunds.id(refundId);
-  if (!refund) return errorResponse(res, "Refund not found.", 404);
-
-  refund.status      = action === "approve" ? "processed" : "rejected";
-  refund.processedBy = req.user._id;
-  refund.processedAt = new Date();
-  if (notes)         refund.notes = notes;
-  if (transactionId) refund.transactionId = transactionId;
-
-  if (action === "approve") {
-    order.payment.status = "refunded";
-    order.status = "refunded";
-    order.timeline.push({
-      status: "refunded",
-      message: `Refund of ₹${refund.amount} processed.`,
-      updatedBy: req.user._id,
-    });
-  }
-
-  await order.save();
-
-  await createAuditLog({
-    user: req.user, action: `${action.toUpperCase()}_REFUND`, module: "Order",
-    targetId: order._id, targetName: order.orderNumber, req,
-  });
-
-  return successResponse(res, { order }, `Refund ${action}d.`);
-});
 
 // ─── Dashboard Stats ──────────────────────────────────────────────────────────
 

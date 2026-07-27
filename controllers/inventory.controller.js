@@ -19,7 +19,7 @@ export const getInventoryOverview = asyncHandler(async (req, res) => {
     stockStatus, sort = "-updatedAt",
   } = req.query;
 
-  const filter = { isArchived: false };
+  const filter = { status: { $ne: "archived" } };
   if (search)   filter.$text    = { $search: search };
   if (category) filter.category = category;
   if (collection) filter.collection = collection;
@@ -45,43 +45,49 @@ export const getInventoryOverview = asyncHandler(async (req, res) => {
 // ─── Adjust Stock ─────────────────────────────────────────────────────────────
 
 export const adjustStock = asyncHandler(async (req, res) => {
-  const { productId, quantity, type, notes, warehouse } = req.body;
+  const { productId, quantity, type, notes, warehouse, costPrice, price, minStockLevel, reason } = req.body;
 
   const product = await Product.findById(productId);
   if (!product) return errorResponse(res, "Product not found.", 404);
 
   const previousStock = product.stock;
-  const newStock = previousStock + Number(quantity);
+  
+  if (quantity !== undefined) {
+    const newStock = previousStock + Number(quantity);
+    if (newStock < 0) {
+      return errorResponse(res, "Stock cannot go below 0.", 400);
+    }
+    product.stock = newStock;
 
-  if (newStock < 0) {
-    return errorResponse(res, "Stock cannot go below 0.", 400);
+    await InventoryMovement.create({
+      product: product._id,
+      sku: product.sku,
+      type: type || "adjustment",
+      quantity: Number(quantity),
+      previousStock,
+      newStock,
+      warehouse,
+      notes: reason ? `${reason} - ${notes || ''}` : (notes || "Stock adjusted"),
+      performedBy: req.user._id,
+    });
   }
 
-  product.stock = newStock;
   if (warehouse) product.warehouse = warehouse;
+  if (costPrice !== undefined) product.costPrice = costPrice;
+  if (price !== undefined) product.price = price;
+  if (minStockLevel !== undefined) product.minStockLevel = minStockLevel;
+  
   await product.save();
-
-  await InventoryMovement.create({
-    product: product._id,
-    sku: product.sku,
-    type: type || "adjustment",
-    quantity: Number(quantity),
-    previousStock,
-    newStock,
-    warehouse,
-    notes,
-    performedBy: req.user._id,
-  });
 
   await createAuditLog({
     user: req.user, action: "ADJUST_STOCK", module: "Inventory",
-    targetId: product._id, targetName: product.name,
-    changes: { previousStock, newStock, quantity },
+    targetId: product._id, targetName: product.title,
+    changes: { previousStock, newStock: product.stock, quantity, costPrice, price, minStockLevel },
     req,
   });
 
   return successResponse(res, {
-    product: { _id: product._id, name: product.name, stock: newStock, sku: product.sku },
+    product: { _id: product._id, title: product.title, stock: product.stock, sku: product.sku },
   }, "Stock adjusted.");
 });
 
@@ -152,18 +158,18 @@ export const getInventoryMovements = asyncHandler(async (req, res) => {
 
 export const getInventoryStats = asyncHandler(async (req, res) => {
   const [total, lowStock, outOfStock, totalValue] = await Promise.all([
-    Product.countDocuments({ isArchived: false }),
-    Product.countDocuments({ stock: { $gt: 0, $lte: 10 }, isArchived: false }),
-    Product.countDocuments({ stock: 0, isArchived: false }),
+    Product.countDocuments({ status: { $ne: "archived" } }),
+    Product.countDocuments({ stock: { $gt: 0, $lte: 10 }, status: { $ne: "archived" } }),
+    Product.countDocuments({ stock: 0, status: { $ne: "archived" } }),
     Product.aggregate([
-      { $match: { isArchived: false } },
+      { $match: { status: { $ne: "archived" } } },
       { $group: { _id: null, value: { $sum: { $multiply: ["$price", "$stock"] } } } },
     ]),
   ]);
 
   // Low stock items list
   const lowStockItems = await Product.find({
-    stock: { $gt: 0, $lte: 10 }, isArchived: false
+    stock: { $gt: 0, $lte: 10 }, status: { $ne: "archived" }
   })
     .select("name sku stock minimumStock mainImage")
     .sort("stock")
@@ -179,4 +185,31 @@ export const getInventoryStats = asyncHandler(async (req, res) => {
     },
     lowStockItems,
   }, "Inventory stats fetched.");
+});
+
+// ─── Export CSV ───────────────────────────────────────────────────────────────
+
+export const exportInventory = asyncHandler(async (req, res) => {
+  const products = await Product.find({ status: { $ne: "archived" } }).lean();
+  
+  if (products.length === 0) return errorResponse(res, "No products to export", 404);
+
+  const headers = ["Title", "SKU", "Category", "Cost Price", "Selling Price", "Total Stock", "Reserved Stock", "Available Stock", "Min Stock"];
+  const rows = products.map(p => [
+    `"${(p.title || p.name || "").replace(/"/g, '""')}"`, 
+    p.sku || "", 
+    p.category || "", 
+    p.costPrice || 0, 
+    p.price || 0, 
+    p.stock || 0, 
+    p.reservedStock || 0, 
+    Math.max(0, (p.stock || 0) - (p.reservedStock || 0)), 
+    p.minStockLevel || 0
+  ]);
+
+  const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+
+  res.header('Content-Type', 'text/csv');
+  res.attachment('inventory_export.csv');
+  return res.send(csv);
 });
