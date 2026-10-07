@@ -39,6 +39,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+console.log('karan')
 
 // ─────────────────────────────────────────────
 // Security & utility middleware
